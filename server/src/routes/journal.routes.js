@@ -62,4 +62,59 @@ router.post("/submit", async (req, res) => {
   }
 });
 
+/**
+ * @route   GET /api/journal/analytics/:firebaseUid
+ * @desc    Step 3.4: Aggregate Win Rate, Profit Factor, and Discipline Metrics
+ */
+router.get("/analytics/:firebaseUid", async (req, res) => {
+  try {
+    const user = await User.findOne({ firebaseUid: req.params.firebaseUid });
+    if (!user || !user.activeAccountId) {
+      return res.json({ totalTrades: 0, winRate: 0, profitFactor: 0 });
+    }
+
+    const trades = await TradeHistory.find({
+      accountId: user.activeAccountId,
+      isJournaled: true,
+    });
+
+    let winningTrades = 0;
+    let grossProfit = 0;
+    let grossLoss = 0;
+
+    trades.forEach((t) => {
+      if (t.netPnL > 0) {
+        winningTrades++;
+        grossProfit += t.netPnL;
+      } else {
+        grossLoss += Math.abs(t.netPnL);
+      }
+    });
+
+    const totalTrades = trades.length;
+    const winRate =
+      totalTrades > 0
+        ? Number(((winningTrades / totalTrades) * 100).toFixed(2))
+        : 0;
+    const profitFactor =
+      grossLoss > 0
+        ? Number((grossProfit / grossLoss).toFixed(2))
+        : grossProfit > 0
+          ? 99.99
+          : 0;
+
+    res.json({
+      totalTrades,
+      winningTrades,
+      losingTrades: totalTrades - winningTrades,
+      winRate,
+      grossProfit,
+      grossLoss,
+      profitFactor,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

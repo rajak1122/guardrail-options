@@ -4,16 +4,12 @@ const PropAccount = require("../models/PropAccount");
 const TradeHistory = require("../models/TradeHistory");
 
 class MatchingEngine {
-  /**
-   * Place a new order and execute it immediately if it's a MARKET order
-   */
   async placeOrder(accountId, orderData, currentTickPrice, currentGreeks) {
     const account = await PropAccount.findById(accountId);
     if (!account) throw new Error("Account not found");
     if (account.status === "BREACHED")
       throw new Error("Account is breached. Trading is locked.");
 
-    // Enforce Journal Discipline Gate: Check if user has an unjournaled closed trade
     if (account.hasUnjournaledTrade) {
       throw new Error(
         "Trading Locked: You must complete your mandatory post-trade journal for your last closed trade before placing new orders.",
@@ -22,7 +18,6 @@ class MatchingEngine {
 
     const totalQuantity = orderData.quantity * orderData.lotSize;
 
-    // Create Order record
     const order = await Order.create({
       accountId,
       symbol: orderData.symbol,
@@ -39,12 +34,39 @@ class MatchingEngine {
       status: "PENDING",
     });
 
-    // If Market Order, execute instantly
     if (order.orderType === "MARKET") {
       return await this.executeOrder(order, currentTickPrice, currentGreeks);
     }
 
     return { message: "Order placed successfully as PENDING", order };
+  }
+
+  /**
+   * Step 2.2: Evaluate incoming ticks against pending LIMIT, STOP-LOSS, and TARGET orders
+   */
+  async evaluatePendingOrders(currentPrices, currentGreeksMap) {
+    const pendingOrders = await Order.find({ status: "PENDING" });
+    for (const order of pendingOrders) {
+      const ltp = currentPrices[order.symbol];
+      if (!ltp) continue;
+
+      let shouldExecute = false;
+      if (
+        order.orderType === "LIMIT" &&
+        order.side === "BUY" &&
+        ltp <= order.limitPrice
+      ) {
+        shouldExecute = true;
+      } else if (order.orderType === "SL" && ltp <= order.triggerPrice) {
+        shouldExecute = true;
+      }
+
+      if (shouldExecute) {
+        const greeks = currentGreeksMap[order.symbol] || {};
+        await this.executeOrder(order, ltp, greeks);
+        console.log(`⚡ Pending order ${order._id} executed at LTP: ${ltp}`);
+      }
+    }
   }
 
   async executeOrder(order, executionPrice, currentGreeks) {
@@ -54,14 +76,12 @@ class MatchingEngine {
     await order.save();
 
     if (order.side === "BUY") {
-      // Open or add to a long options position
       let position = await Position.findOne({
         accountId: order.accountId,
         symbol: order.symbol,
       });
 
       if (position) {
-        // Average out entry price
         const totalCost =
           position.quantity * position.averageEntryPrice +
           order.quantity * executionPrice;
@@ -83,12 +103,10 @@ class MatchingEngine {
         });
       }
     } else if (order.side === "SELL") {
-      // Exit/reduce position
       const position = await Position.findOne({
         accountId: order.accountId,
         symbol: order.symbol,
       });
-
       if (!position)
         throw new Error(
           "No open position found to exit for symbol: " + order.symbol,
@@ -99,16 +117,13 @@ class MatchingEngine {
       const netPnL = (executionPrice - buyPrice) * exitQty;
       const pnlPercent = ((executionPrice - buyPrice) / buyPrice) * 100;
 
-      // Update account cash balance
       const account = await PropAccount.findById(order.accountId);
       account.currentBalance += netPnL;
 
-      // Update high water mark if equity increased
       if (account.currentBalance > account.highWaterMark) {
         account.highWaterMark = account.currentBalance;
       }
 
-      // Record Trade History & trigger mandatory journal lock
       const tradeHistory = await TradeHistory.create({
         accountId: order.accountId,
         symbol: order.symbol,
@@ -131,7 +146,15 @@ class MatchingEngine {
       account.lastUnjournaledTradeId = tradeHistory._id;
       await account.save();
 
-      // Reduce or remove position
+      // Step 3.3: Push trading lock event over Socket.io
+      if (global.io) {
+        global.io.to(order.accountId.toString()).emit("trading_locked", {
+          accountId: order.accountId,
+          tradeId: tradeHistory._id,
+          message: "Trading locked. Mandatory post-trade journal required.",
+        });
+      }
+
       if (position.quantity <= exitQty) {
         await Position.deleteOne({ _id: position._id });
       } else {

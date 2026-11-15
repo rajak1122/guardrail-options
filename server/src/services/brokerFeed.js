@@ -1,4 +1,5 @@
 const { calculateGreeks } = require("./greeksEngine");
+const matchingEngine = require("./matchingEngine");
 
 class BrokerFeedManager {
   constructor() {
@@ -40,7 +41,7 @@ class BrokerFeedManager {
 
   startSimulator() {
     // Simulate real-time Nifty & Bank Nifty ticks every 1 second
-    setInterval(() => {
+    setInterval(async () => {
       // Random walk price shift (-5 to +5 points for Nifty, -15 to +15 for Bank Nifty)
       const niftyShift = (Math.random() - 0.49) * 10;
       const bankNiftyShift = (Math.random() - 0.49) * 30;
@@ -71,6 +72,28 @@ class BrokerFeedManager {
         0.18,
       );
 
+      const ceSymbol = `NIFTY${niftyAtm}CE`;
+      const peSymbol = `NIFTY${niftyAtm}PE`;
+
+      const currentPrices = {
+        [ceSymbol]: callGreeks.lcp,
+        [peSymbol]: putGreeks.lcp,
+      };
+      const currentGreeksMap = {
+        [ceSymbol]: callGreeks,
+        [peSymbol]: putGreeks,
+      };
+
+      // Step 2.2: Evaluate pending limit / stop-loss orders against current tick prices
+      try {
+        await matchingEngine.evaluatePendingOrders(
+          currentPrices,
+          currentGreeksMap,
+        );
+      } catch (err) {
+        console.error("Error evaluating pending orders:", err.message);
+      }
+
       const tickPacket = {
         timestamp: Date.now(),
         spot: {
@@ -79,8 +102,8 @@ class BrokerFeedManager {
         },
         optionChainSample: {
           strike: niftyAtm,
-          ce: { ...callGreeks, symbol: `NIFTY${niftyAtm}CE` },
-          pe: { ...putGreeks, symbol: `NIFTY${niftyAtm}PE` },
+          ce: { ...callGreeks, symbol: ceSymbol },
+          pe: { ...putGreeks, symbol: peSymbol },
         },
       };
 
