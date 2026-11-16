@@ -1,24 +1,23 @@
-const getFirebaseAdmin = require('../config/firebaseAdmin');
+const admin = require("firebase-admin");
+require("../config/firebaseAdmin");
 
-async function authMiddleware(req, res, next) {
-  const authorization = req.headers.authorization || '';
-  const [scheme, token] = authorization.split(' ');
-
-  if (scheme !== 'Bearer' || !token) {
-    return res.status(401).json({ message: 'A Firebase ID token is required.' });
-  }
-
+const authMiddleware = async (req, res, next) => {
   try {
-    const admin = getFirebaseAdmin();
-    if (!admin) {
-      return res.status(503).json({ message: 'Firebase Admin is not configured.' });
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Unauthorized: No token provided" });
     }
 
-    req.user = await admin.auth().verifyIdToken(token);
-    return next();
+    const token = authHeader.split("Bearer ")[1];
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    req.user = decodedToken; // Contains uid, email, etc.
+    next();
   } catch (error) {
-    return res.status(401).json({ message: 'Invalid or expired Firebase ID token.' });
+    console.error("Auth Middleware Error:", error.message);
+    return res
+      .status(401)
+      .json({ error: "Unauthorized: Invalid or expired token" });
   }
-}
+};
 
 module.exports = authMiddleware;
