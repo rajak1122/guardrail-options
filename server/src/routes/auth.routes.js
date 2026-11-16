@@ -4,7 +4,7 @@ const User = require("../models/User");
 
 /**
  * @route   POST /api/auth/sync
- * @desc    Sync Firebase authenticated user with MongoDB
+ * @desc    Sync Firebase authenticated user with MongoDB (atomic upsert to prevent race conditions)
  */
 router.post("/sync", async (req, res) => {
   try {
@@ -13,14 +13,17 @@ router.post("/sync", async (req, res) => {
       return res.status(400).json({ error: "Missing firebaseUid or email." });
     }
 
-    let user = await User.findOne({ firebaseUid });
-    if (!user) {
-      user = await User.create({
-        firebaseUid,
-        email,
-        displayName: displayName || email.split("@")[0],
-      });
-    }
+    // Atomic findOneAndUpdate with upsert prevents concurrent duplicate key errors
+    const user = await User.findOneAndUpdate(
+      { firebaseUid },
+      {
+        $set: {
+          email,
+          displayName: displayName || email.split("@")[0],
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
 
     res.json({ message: "User synced successfully", user });
   } catch (error) {
