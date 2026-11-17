@@ -1,6 +1,8 @@
 const express = require("express");
 const router = express.Router();
+const mongoose = require("mongoose");
 const matchingEngine = require("../services/matchingEngine");
+const Account = require("../models/PropAccount");
 const Position = require("../models/Position");
 const TradeHistory = require("../models/TradeHistory");
 const User = require("../models/User");
@@ -11,27 +13,79 @@ const User = require("../models/User");
  */
 router.post("/place", async (req, res) => {
   try {
-    const { firebaseUid, orderData, currentTickPrice, currentGreeks } =
-      req.body;
+    const {
+      firebaseUid,
+      userId,
+      orderData,
+      currentTickPrice,
+      currentGreeks,
+      symbol,
+      optionType,
+      strikePrice,
+      quantity,
+      orderType,
+      entryPrice,
+    } = req.body;
 
-    const user = await User.findOne({ firebaseUid });
-    if (!user || !user.activeAccountId) {
+    const targetId = firebaseUid || userId;
+    if (!targetId) {
+      return res
+        .status(400)
+        .json({ error: "User ID is required in request body." });
+    }
+
+    let activeAccount = null;
+
+    if (mongoose.Types.ObjectId.isValid(targetId)) {
+      // 1. Direct match on PropAccount.userId (matches your Compass document!)
+      activeAccount = await Account.findOne({
+        userId: targetId,
+        status: "ACTIVE",
+      });
+
+      // 2. Fallback: Direct match on PropAccount._id
+      if (!activeAccount) {
+        activeAccount = await Account.findById(targetId);
+      }
+    }
+
+    // 3. Fallback: If targetId is a Firebase UID string, resolve User first then PropAccount
+    if (!activeAccount) {
+      const user = await User.findOne({ firebaseUid: targetId });
+      if (user) {
+        activeAccount =
+          (user.activeAccountId &&
+            (await Account.findById(user.activeAccountId))) ||
+          (await Account.findOne({ userId: user._id, status: "ACTIVE" }));
+      }
+    }
+
+    if (!activeAccount) {
       return res
         .status(400)
         .json({ error: "User or active trading account not found." });
     }
 
+    const structuredOrderData = orderData || {
+      symbol,
+      optionType,
+      strikePrice,
+      quantity,
+      orderType,
+      entryPrice,
+    };
+
     const result = await matchingEngine.placeOrder(
-      user.activeAccountId,
-      orderData,
-      currentTickPrice,
+      activeAccount._id,
+      structuredOrderData,
+      currentTickPrice || entryPrice,
       currentGreeks,
     );
 
     res.json(result);
   } catch (error) {
-    console.error("Error placing order:", error);
-    res.status(400).json({ error: error.message });
+    console.error("Order placement error:", error);
+    res.status(500).json({ error: error.message || "Internal server error" });
   }
 });
 

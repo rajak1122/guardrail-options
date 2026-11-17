@@ -86,9 +86,9 @@ const tradeHistorySchema = new mongoose.Schema(
         type: String,
         enum: [
           "CALM_DISCIPLINED",
-          "FOMO",
-          "REVENGE",
-          "HESITANT",
+          "FOMO_RUSHED",
+          "CONFIDENT_PATIENT",
+          "REVENGE_TILT",
           "OVERCONFIDENT",
         ],
         default: null,

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { placeOrder } from "../../api/tradingApi";
+import { useAuth } from "../../context/AuthContext";
 import { FiShoppingCart, FiAlertCircle, FiCheck, FiZap } from "react-icons/fi";
 
 export default function OrderTicket({
@@ -7,18 +8,20 @@ export default function OrderTicket({
   selectedContract,
   onOrderPlaced,
 }) {
-  const [quantity, setQuantity] = useState(50); // Default 1 lot (Nifty lot size = 50)
+  const { user } = useAuth();
+  const [lots, setLots] = useState(1); // Number of lots (1 lot = 75 NIFTY / 30 BANKNIFTY)
   const [orderType, setOrderType] = useState("MARKET");
   const [limitPrice, setLimitPrice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
-  // Update limit price default when contract changes
   useEffect(() => {
     if (selectedContract?.ltp) {
       setLimitPrice(selectedContract.ltp.toFixed(2));
     }
+    setErrorMsg("");
+    setSuccessMsg("");
   }, [selectedContract]);
 
   if (!selectedContract) {
@@ -36,11 +39,16 @@ export default function OrderTicket({
     );
   }
 
+  const underlying = selectedContract.symbol?.startsWith("BANKNIFTY")
+    ? "BANKNIFTY"
+    : "NIFTY";
+  const lotSize = underlying === "BANKNIFTY" ? 30 : 75;
+  const totalQty = lots * lotSize;
   const contractPrice =
     orderType === "MARKET"
       ? selectedContract.ltp
       : Number(limitPrice) || selectedContract.ltp;
-  const estimatedCost = contractPrice * quantity;
+  const estimatedCost = contractPrice * totalQty;
 
   const handleExecuteOrder = async () => {
     setErrorMsg("");
@@ -53,26 +61,42 @@ export default function OrderTicket({
       return;
     }
 
-    if (estimatedCost > account.currentBalance) {
+    if (estimatedCost > (account?.currentBalance || 0)) {
       setErrorMsg("Insufficient balance for this order size.");
+      return;
+    }
+
+    const resolvedUid =
+      account?.firebaseUid || account?.userId || account?.uid || user?.uid;
+    if (!resolvedUid) {
+      setErrorMsg("Authentication Error: User ID not found in session.");
       return;
     }
 
     try {
       setSubmitting(true);
       const payload = {
-        firebaseUid: account.firebaseUid || account.userId,
-        symbol: selectedContract.symbol,
-        optionType: selectedContract.optionType,
-        strikePrice: selectedContract.strike,
-        quantity: Number(quantity),
-        orderType,
-        entryPrice: contractPrice,
+        firebaseUid: resolvedUid,
+        currentTickPrice: selectedContract.ltp,
+        orderData: {
+          symbol: selectedContract.symbol,
+          underlying,
+          strikePrice: selectedContract.strike,
+          optionType: selectedContract.optionType,
+          expiryDate: selectedContract.expiryDate || "2026-11-19",
+          side: "BUY",
+          orderType,
+          quantity: Number(lots), // matchingEngine multiplies quantity (lots) * lotSize
+          lotSize,
+          limitPrice: orderType === "LIMIT" ? Number(limitPrice) : null,
+        },
       };
 
       const res = await placeOrder(payload);
-      setSuccessMsg(`Order executed successfully! Position opened.`);
-      if (onOrderPlaced) onOrderPlaced(res.position);
+      setSuccessMsg(
+        `Executed BUY ${totalQty} QTY (${lots} lot${lots > 1 ? "s" : ""}) @ ₹${contractPrice.toFixed(2)}`,
+      );
+      if (onOrderPlaced) onOrderPlaced(res);
     } catch (err) {
       setErrorMsg(err.message || "Failed to place order.");
     } finally {
@@ -115,9 +139,13 @@ export default function OrderTicket({
             ₹{selectedContract.ltp?.toFixed(2)}
           </span>
         </div>
+        <div className="flex justify-between text-slate-400">
+          <span>Lot Size ({underlying}):</span>
+          <span className="text-slate-200">{lotSize} Qty / Lot</span>
+        </div>
       </div>
 
-      {/* Order Type & Quantity Inputs */}
+      {/* Order Type & Lots Inputs */}
       <div className="space-y-4 font-mono text-xs">
         <div>
           <label className="text-slate-400 block mb-1.5">Order Type</label>
@@ -153,19 +181,21 @@ export default function OrderTicket({
         )}
 
         <div>
-          <label className="text-slate-400 block mb-1.5">Quantity (Lots)</label>
+          <label className="text-slate-400 block mb-1.5">
+            Lots ({totalQty} Total Qty)
+          </label>
           <div className="flex items-center gap-2">
-            {[50, 100, 150, 250].map((qty) => (
+            {[1, 2, 3, 5].map((lotCount) => (
               <button
-                key={qty}
-                onClick={() => setQuantity(qty)}
+                key={lotCount}
+                onClick={() => setLots(lotCount)}
                 className={`flex-1 py-2 rounded-xl border transition font-bold ${
-                  quantity === qty
+                  lots === lotCount
                     ? "bg-emerald-500/15 border-emerald-500 text-emerald-400"
                     : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700"
                 }`}
               >
-                {qty}
+                {lotCount} {lotCount === 1 ? "Lot" : "Lots"}
               </button>
             ))}
           </div>
@@ -207,7 +237,7 @@ export default function OrderTicket({
       >
         {submitting
           ? "Executing Order..."
-          : `BUY ${quantity} QTY @ ₹${contractPrice.toFixed(2)}`}
+          : `BUY ${totalQty} QTY (${lots}L) @ ₹${contractPrice.toFixed(2)}`}
       </button>
     </div>
   );

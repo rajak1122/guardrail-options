@@ -31,17 +31,22 @@ class CandleAggregator {
       c.volume += volumeIncrement;
     }
 
+    const currentCandle = this.activeCandles[candleKey];
+
     try {
-      const c = this.activeCandles[candleKey];
       await Candle.findOneAndUpdate(
-        { symbol: c.symbol, timeframe: c.timeframe, time: c.time },
+        {
+          symbol: currentCandle.symbol,
+          timeframe: currentCandle.timeframe,
+          time: currentCandle.time,
+        },
         {
           $set: {
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close,
-            volume: c.volume,
+            open: currentCandle.open,
+            high: currentCandle.high,
+            low: currentCandle.low,
+            close: currentCandle.close,
+            volume: currentCandle.volume,
           },
         },
         { upsert: true, new: true },
@@ -49,6 +54,54 @@ class CandleAggregator {
     } catch (err) {
       console.error("Error saving candle aggregation:", err.message);
     }
+
+    return currentCandle;
+  }
+
+  // Generate 40 synthetic 1-minute historical bars if DB has fewer than 5 bars for immediate chart rendering
+  async getHistoricalCandles(symbol, currentLtp = 25350) {
+    let existing = await Candle.find({ symbol, timeframe: "1m" })
+      .sort({ time: 1 })
+      .limit(200)
+      .lean();
+
+    if (existing.length >= 5) return existing;
+
+    const nowSec = Math.floor((Math.floor(Date.now() / 60000) * 60000) / 1000);
+    const seedBars = [];
+    let price = currentLtp - (Math.random() - 0.5) * (currentLtp * 0.005);
+
+    for (let i = 40; i >= 1; i--) {
+      const time = nowSec - i * 60;
+      const open = Number(price.toFixed(2));
+      const change = (Math.random() - 0.49) * (currentLtp * 0.0015);
+      const close = Number(Math.max(5, open + change).toFixed(2));
+      const high = Number(
+        (Math.max(open, close) + Math.random() * (currentLtp * 0.0008)).toFixed(
+          2,
+        ),
+      );
+      const low = Number(
+        Math.max(
+          5,
+          Math.min(open, close) - Math.random() * (currentLtp * 0.0008),
+        ).toFixed(2),
+      );
+      seedBars.push({
+        symbol,
+        timeframe: "1m",
+        time,
+        open,
+        high,
+        low,
+        close,
+        volume: Math.floor(500 + Math.random() * 2500),
+      });
+      price = close;
+    }
+
+    await Candle.insertMany(seedBars, { ordered: false }).catch(() => {});
+    return seedBars;
   }
 }
 
