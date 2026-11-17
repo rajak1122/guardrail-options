@@ -1,19 +1,24 @@
 const express = require("express");
 const router = express.Router();
 const User = require("../models/User");
+const authMiddleware = require("../middleware/authMiddleware");
 
 /**
  * @route   POST /api/auth/sync
- * @desc    Sync Firebase authenticated user with MongoDB (atomic upsert to prevent race conditions)
+ * @desc    Sync the verified Firebase user with MongoDB.
  */
-router.post("/sync", async (req, res) => {
+router.post("/sync", authMiddleware, async (req, res) => {
   try {
-    const { firebaseUid, email, displayName } = req.body;
+    const firebaseUid = req.user.uid;
+    const email = req.user.email;
+    const displayName = req.body.displayName || req.user.name || "";
+
     if (!firebaseUid || !email) {
-      return res.status(400).json({ error: "Missing firebaseUid or email." });
+      return res.status(400).json({
+        error: "The authenticated Firebase account must have an email address.",
+      });
     }
 
-    // Atomic findOneAndUpdate with upsert prevents concurrent duplicate key errors
     const user = await User.findOneAndUpdate(
       { firebaseUid },
       {
@@ -25,10 +30,10 @@ router.post("/sync", async (req, res) => {
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
 
-    res.json({ message: "User synced successfully", user });
+    return res.json({ message: "User synced successfully", user });
   } catch (error) {
     console.error("Auth sync error:", error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: "Failed to sync user account." });
   }
 });
 
