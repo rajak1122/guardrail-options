@@ -1,14 +1,18 @@
-const API_BASE = "http://localhost:5000/api";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
 
-export async function syncUserWithBackend(userData) {
+export async function syncUserWithBackend({ idToken, email, displayName }) {
   const res = await fetch(`${API_BASE}/auth/sync`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(userData),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({ email, displayName }),
   });
+
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const errorData = await res.json();
-    throw new Error(errorData.error || "Failed to sync user");
+    throw new Error(data.error || "Failed to sync user");
   }
-  return res.json();
+  return data;
 }
