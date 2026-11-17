@@ -15,6 +15,7 @@ export default function OrderTicket({
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [orderFeedbackStatus, setOrderFeedbackStatus] = useState("");
 
   useEffect(() => {
     if (selectedContract?.ltp) {
@@ -53,6 +54,7 @@ export default function OrderTicket({
   const handleExecuteOrder = async () => {
     setErrorMsg("");
     setSuccessMsg("");
+    setOrderFeedbackStatus("");
 
     if (account?.hasUnjournaledTrade) {
       setErrorMsg(
@@ -93,9 +95,30 @@ export default function OrderTicket({
       };
 
       const res = await placeOrder(payload);
-      setSuccessMsg(
-        `Executed BUY ${totalQty} QTY (${lots} lot${lots > 1 ? "s" : ""}) @ ₹${contractPrice.toFixed(2)}`,
-      );
+
+      const orderStatus = res?.order?.status;
+
+      if (orderStatus === "PENDING") {
+        setOrderFeedbackStatus("PENDING");
+
+        setSuccessMsg(
+          `LIMIT BUY ${totalQty} QTY (${lots} lot${lots > 1 ? "s" : ""}) placed. Waiting for price ₹${Number(limitPrice).toFixed(2)}.`,
+        );
+      } else if (orderStatus === "EXECUTED") {
+        setOrderFeedbackStatus("EXECUTED");
+
+        const executedPrice = Number(
+          res.order.executedPrice ?? selectedContract.ltp,
+        );
+
+        setSuccessMsg(
+          `BUY ${totalQty} QTY (${lots} lot${lots > 1 ? "s" : ""}) filled @ ₹${executedPrice.toFixed(2)}`,
+        );
+      } else {
+        setOrderFeedbackStatus("SUCCESS");
+        setSuccessMsg(res?.message || "Order submitted successfully.");
+      }
+
       if (onOrderPlaced) onOrderPlaced(res);
     } catch (err) {
       setErrorMsg(err.message || "Failed to place order.");
@@ -222,8 +245,19 @@ export default function OrderTicket({
         )}
 
         {successMsg && (
-          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center gap-2">
-            <FiCheck className="w-4 h-4 shrink-0" />
+          <div
+            className={`p-3 rounded-xl border flex items-center gap-2 ${
+              orderFeedbackStatus === "PENDING"
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+            }`}
+          >
+            {orderFeedbackStatus === "PENDING" ? (
+              <FiAlertCircle className="w-4 h-4 shrink-0" />
+            ) : (
+              <FiCheck className="w-4 h-4 shrink-0" />
+            )}
+
             <span>{successMsg}</span>
           </div>
         )}
