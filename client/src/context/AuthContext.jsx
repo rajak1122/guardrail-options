@@ -6,46 +6,95 @@ import {
   signOut,
 } from "firebase/auth";
 import { auth } from "../config/firebase";
+import { syncUserWithBackend } from "../api/authApi";
 
 const googleProvider = new GoogleAuthProvider();
-const AuthContext = createContext();
+googleProvider.setCustomParameters({ prompt: "select_account" });
+
+const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
+    if (!auth) {
+      setAuthError(
+        "Firebase is not configured. Add the VITE_FIREBASE_* values to the client environment.",
+      );
+      setLoading(false);
+      return undefined;
+    }
+
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (firebaseUser) => {
+        setAuthError("");
         setUser(firebaseUser);
-        // Sync user with our MongoDB backend
-        try {
-          await fetch("http://localhost:5000/api/auth/sync", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              firebaseUid: firebaseUser.uid,
+
+        if (firebaseUser) {
+          try {
+            const idToken = await firebaseUser.getIdToken();
+            await syncUserWithBackend({
+              idToken,
               email: firebaseUser.email,
               displayName: firebaseUser.displayName,
-            }),
-          });
-        } catch (err) {
-          console.error("Failed to sync user with backend:", err);
+            });
+          } catch (error) {
+            console.error("Failed to sync authenticated user:", error);
+            setAuthError(
+              "You signed in, but your account could not sync with the server. Please try again.",
+            );
+          }
         }
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
-    });
+
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Firebase auth state error:", error);
+        setAuthError(error.message || "Unable to check your sign-in status.");
+        setLoading(false);
+      },
+    );
 
     return () => unsubscribe();
   }, []);
 
-  const loginWithGoogle = () => signInWithPopup(auth, googleProvider);
-  const logout = () => signOut(auth);
+  const loginWithGoogle = async () => {
+    setAuthError("");
+    if (!auth) {
+      const message = "Firebase is not configured. Check your client environment variables.";
+      setAuthError(message);
+      throw new Error(message);
+    }
+
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      return result.user;
+    } catch (error) {
+      console.error("Google sign-in failed:", error);
+      const message =
+        error.code === "auth/unauthorized-domain"
+          ? "This domain is not authorized in Firebase Authentication."
+          : error.code === "auth/popup-blocked"
+            ? "Your browser blocked the Google sign-in popup. Allow popups and try again."
+            : error.code === "auth/popup-closed-by-user"
+              ? "The sign-in window was closed before completing login."
+              : error.message || "Google sign-in failed. Please try again.";
+      setAuthError(message);
+      throw new Error(message);
+    }
+  };
+
+  const logout = async () => {
+    if (auth) await signOut(auth);
+  };
 
   return (
-    <AuthContext.Provider value={{ user, loginWithGoogle, logout, loading }}>
+    <AuthContext.Provider
+      value={{ user, loginWithGoogle, logout, loading, authError, setAuthError }}
+    >
       {!loading && children}
     </AuthContext.Provider>
   );
