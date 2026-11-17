@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import {
   FiShield,
@@ -12,7 +12,20 @@ import {
 import { FcGoogle } from "react-icons/fc";
 
 export default function LandingPage() {
-  const { loginWithGoogle } = useAuth();
+  const { loginWithGoogle, authError } = useAuth();
+  const [signingIn, setSigningIn] = useState(false);
+
+  const handleLogin = async () => {
+    try {
+      setSigningIn(true);
+      await loginWithGoogle();
+    } catch (error) {
+      // AuthContext exposes a readable error message for the landing page.
+      console.error("Trader login error:", error);
+    } finally {
+      setSigningIn(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-emerald-500/30 overflow-x-hidden relative">
@@ -38,11 +51,11 @@ export default function LandingPage() {
           </div>
 
           <button
-            onClick={loginWithGoogle}
+            onClick={handleLogin} disabled={signingIn}
             className="group flex items-center gap-2 text-sm font-medium bg-slate-900 hover:bg-slate-800/80 border border-slate-800 hover:border-slate-700 text-slate-200 px-5 py-2.5 rounded-xl transition-all duration-300 shadow-sm"
           >
             <FcGoogle className="w-4 h-4" />
-            <span>Trader Login</span>
+            <span>{signingIn ? "Opening Google..." : "Trader Login"}</span>
             <FiArrowRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
           </button>
         </div>
@@ -72,14 +85,23 @@ export default function LandingPage() {
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 pt-2">
             <button
-              onClick={loginWithGoogle}
+              onClick={handleLogin} disabled={signingIn}
               className="bg-gradient-to-r from-emerald-400 to-emerald-500 hover:from-emerald-300 hover:to-emerald-400 text-slate-950 font-bold px-8 py-4 rounded-2xl transition-all duration-300 shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-3 text-base group transform hover:-translate-y-0.5"
             >
               <FcGoogle className="w-5 h-5 bg-white rounded-full p-0.5" />
-              <span>Get Started with Google</span>
+              <span>{signingIn ? "Signing in..." : "Get Started with Google"}</span>
               <FiArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
           </div>
+
+          {authError && (
+            <div
+              role="alert"
+              className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300"
+            >
+              {authError}
+            </div>
+          )}
 
           <div className="flex items-center gap-6 pt-4 text-xs font-mono text-slate-400 border-t border-slate-900">
             <div className="flex items-center gap-2">
