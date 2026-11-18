@@ -6,6 +6,7 @@ import { FiShoppingCart, FiAlertCircle, FiCheck, FiZap } from "react-icons/fi";
 export default function OrderTicket({
   account,
   selectedContract,
+  executionEvent,
   onOrderPlaced,
 }) {
   const { user } = useAuth();
@@ -16,6 +17,7 @@ export default function OrderTicket({
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [orderFeedbackStatus, setOrderFeedbackStatus] = useState("");
+  const [pendingOrderId, setPendingOrderId] = useState(null);
 
   useEffect(() => {
     if (selectedContract?.ltp) {
@@ -24,6 +26,28 @@ export default function OrderTicket({
     setErrorMsg("");
     setSuccessMsg("");
   }, [selectedContract]);
+
+  useEffect(() => {
+    if (!executionEvent || !pendingOrderId) return;
+
+    // Ignore execution events belonging to other orders
+    if (executionEvent.orderId !== pendingOrderId) return;
+
+    if (executionEvent.status !== "EXECUTED") return;
+
+    const executedPrice = Number(executionEvent.executedPrice);
+
+    setOrderFeedbackStatus("EXECUTED");
+
+    setSuccessMsg(
+      `${executionEvent.side} ${executionEvent.quantity} QTY filled @ ₹${executedPrice.toFixed(2)}`,
+    );
+
+    // Clear the completed pending order
+    setPendingOrderId(null);
+
+    console.log("Pending order updated to EXECUTED:", executionEvent);
+  }, [executionEvent, pendingOrderId]);
 
   if (!selectedContract) {
     return (
@@ -97,6 +121,10 @@ export default function OrderTicket({
       const res = await placeOrder(payload);
 
       const orderStatus = res?.order?.status;
+
+      if (orderStatus === "PENDING") {
+        setPendingOrderId(res.order._id);
+      }
 
       if (orderStatus === "PENDING") {
         setOrderFeedbackStatus("PENDING");

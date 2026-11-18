@@ -69,6 +69,27 @@ class MatchingEngine {
     }
   }
 
+  emitOrderExecuted(order) {
+    const tradingNamespace = global.io?.of("/trading");
+
+    if (!tradingNamespace) return;
+
+    const accountRoom = order.accountId.toString();
+
+    tradingNamespace.to(accountRoom).emit("order_executed", {
+      orderId: order._id.toString(),
+      symbol: order.symbol,
+      side: order.side,
+      quantity: order.quantity,
+      orderType: order.orderType,
+      executedPrice: order.executedPrice,
+      executedAt: order.executedAt,
+      status: order.status,
+    });
+
+    console.log(`Order execution event emitted: ${order._id}`);
+  }
+
   async executeOrder(order, executionPrice, currentGreeks) {
     order.status = "EXECUTED";
     order.executedPrice = executionPrice;
@@ -102,6 +123,7 @@ class MatchingEngine {
           entryGreeks: currentGreeks || {},
         });
       }
+      this.emitOrderExecuted(order);
     } else if (order.side === "SELL") {
       const position = await Position.findOne({
         accountId: order.accountId,
@@ -148,11 +170,14 @@ class MatchingEngine {
 
       // Step 3.3: Push trading lock event over Socket.io
       if (global.io) {
-        global.io.to(order.accountId.toString()).emit("trading_locked", {
-          accountId: order.accountId,
-          tradeId: tradeHistory._id,
-          message: "Trading locked. Mandatory post-trade journal required.",
-        });
+        global.io
+          .of("/trading")
+          .to(order.accountId.toString())
+          .emit("trading_locked", {
+            accountId: order.accountId,
+            tradeId: tradeHistory._id,
+            message: "Trading locked. Mandatory post-trade journal required.",
+          });
       }
 
       if (position.quantity <= exitQty) {
@@ -161,6 +186,7 @@ class MatchingEngine {
         position.quantity -= exitQty;
         await position.save();
       }
+      this.emitOrderExecuted(order);
 
       return { message: "Position exited successfully", netPnL, tradeHistory };
     }
