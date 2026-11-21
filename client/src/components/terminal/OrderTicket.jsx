@@ -157,6 +157,13 @@ export default function OrderTicket({
 
   return (
     <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
+      {/* Journal Lock Warning - Full Width */}
+      {account?.hasUnjournaledTrade && (
+        <div className="w-full rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-400">
+          Journal lock active. Complete your previous trade journal before
+          placing another order.
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-3">
         <div className="flex items-center gap-2">
@@ -294,12 +301,14 @@ export default function OrderTicket({
       {/* Execute Button */}
       <button
         onClick={handleExecuteOrder}
-        disabled={submitting}
+        disabled={submitting || account?.hasUnjournaledTrade}
         className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-extrabold text-sm py-3.5 rounded-xl transition shadow-lg shadow-emerald-500/15"
       >
         {submitting
           ? "Executing Order..."
-          : `BUY ${totalQty} QTY (${lots}L) @ ₹${contractPrice.toFixed(2)}`}
+          : account?.hasUnjournaledTrade
+            ? "JOURNAL REQUIRED — TRADING LOCKED"
+            : `BUY ${totalQty} QTY (${lots}L) @ ₹${contractPrice.toFixed(2)}`}
       </button>
     </div>
   );

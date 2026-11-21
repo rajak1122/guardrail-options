@@ -5,6 +5,8 @@ import LandingPage from "./pages/LandingPage";
 import DashboardPage from "./pages/DashboardPage";
 import TerminalPage from "./pages/TerminalPage";
 import JournalDetailPage from "./pages/JournalDetailPage";
+import DashboardLayout from "./components/layout/DashboardLayout";
+import DashboardModulePage from "./pages/DashboardModulePage";
 import { fetchAccountDetails } from "./api/tradingApi";
 
 function AppRoutes() {
@@ -54,21 +56,91 @@ function AppRoutes() {
 
   return (
     <Routes>
-      <Route
-        path="/dashboard"
-        element={<DashboardPage account={account} setAccount={setAccount} />}
-      />
+      <Route element={<DashboardLayout />}>
+        <Route
+          path="/dashboard"
+          element={<DashboardPage account={account} setAccount={setAccount} />}
+        />
+
+        <Route
+          path="/accounts"
+          element={
+            <DashboardModulePage
+              title="Accounts"
+              description="Create, manage and monitor your trading accounts and risk limits."
+            />
+          }
+        />
+
+        <Route
+          path="/journals"
+          element={
+            <DashboardModulePage
+              title="Journals"
+              description="Review completed trades and pending journals."
+            />
+          }
+        />
+
+        <Route
+          path="/analytics"
+          element={
+            <DashboardModulePage
+              title="Analytics"
+              description="Understand your trading performance and risk exposure."
+            />
+          }
+        />
+
+        <Route
+          path="/profile"
+          element={
+            <DashboardModulePage
+              title="Profile"
+              description="Manage your personal information and preferences."
+            />
+          }
+        />
+
+        <Route
+          path="/support"
+          element={
+            <DashboardModulePage
+              title="Feedback & Support"
+              description="Share feedback and report bugs or account-related complaints."
+            />
+          }
+        />
+      </Route>
+
+      {/* Trading Terminal remains separate */}
       <Route
         path="/terminal"
         element={
           account && account.status === "ACTIVE" ? (
-            <TerminalPage account={account} logout={logout} />
+            <TerminalPage
+              account={account}
+              logout={logout}
+              setAccount={setAccount}
+             />
           ) : (
             <Navigate to="/dashboard" replace />
           )
         }
       />
-      <Route path="/journal/:tradeId" element={<JournalDetailPage />} />
+
+      {/* Journal detail remains separate */}
+      <Route
+        path="/journal/:tradeId"
+        element={
+          <JournalDetailPage
+            onJournalSubmitted={(updatedAccount) => {
+              setAccount(updatedAccount);
+            }}
+          />
+        }
+      />
+
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

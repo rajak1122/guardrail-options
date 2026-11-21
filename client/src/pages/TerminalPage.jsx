@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { fetchAccountDetails } from "../api/tradingApi";
 import { io } from "socket.io-client";
 import AccountHeader from "../components/terminal/AccountHeader";
 import OrderTicket from "../components/terminal/OrderTicket";
@@ -11,7 +13,7 @@ import { useAuth } from "../context/AuthContext";
 
 const SOCKET_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-export default function TerminalPage({ account, logout }) {
+export default function TerminalPage({ account, logout, setAccount }) {
   const [selectedContract, setSelectedContract] = useState(null);
   const [lockedTradeId, setLockedTradeId] = useState(null);
   const [closedTradeSummary, setClosedTradeSummary] = useState(null);
@@ -19,13 +21,18 @@ export default function TerminalPage({ account, logout }) {
   const [executionEvent, setExecutionEvent] = useState(null);
 
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   // 1. Check account lock status on initial load / refresh
   useEffect(() => {
     if (account?.hasUnjournaledTrade && account?.lastUnjournaledTradeId) {
       setLockedTradeId(account.lastUnjournaledTradeId);
+    } else {
+      // Clear stale journal lock after successful submission
+      setLockedTradeId(null);
+      setClosedTradeSummary(null);
     }
-  }, [account]);
+  }, [account?.hasUnjournaledTrade, account?.lastUnjournaledTradeId]);
 
   // 2. Listen for automated TP/SL lock events over Socket.io
   useEffect(() => {
@@ -70,6 +77,37 @@ export default function TerminalPage({ account, logout }) {
           // Refresh positions after backend execution
           setRefreshTrigger((prev) => prev + 1);
         });
+
+        socket.on("account_breached", async (data) => {
+          console.log("Account breach event received:", data);
+
+          // Ignore events belonging to another account.
+          if (data?.accountId?.toString() !== account._id.toString()) {
+            return;
+          }
+
+          // Immediately update the shared account state.
+          setAccount((prev) => ({
+            ...prev,
+            status: "BREACHED",
+            breachReason: data.reason,
+            breachedAt: data.breachedAt,
+          }));
+
+          // Navigate immediately without waiting for the API.
+          navigate("/dashboard", { replace: true });
+
+          // Sync the complete account data after backend transaction.
+          try {
+            const latestData = await fetchAccountDetails(user.uid);
+
+            if (latestData?.account) {
+              setAccount(latestData.account);
+            }
+          } catch (error) {
+            console.error("Failed to refresh breached account:", error);
+          }
+        });
       } catch (error) {
         console.error("Unable to initialize trading socket:", error);
       }
@@ -86,6 +124,12 @@ export default function TerminalPage({ account, logout }) {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-10">
       <AccountHeader account={account} />
+      {/* Blocking Journal Lock Modal */}
+      <JournalLockModal
+        isOpen={Boolean(lockedTradeId)}
+        tradeId={lockedTradeId}
+        tradeSummary={closedTradeSummary}
+      />
       <main className="mx-auto max-w-7xl grid gap-4 p-4 lg:grid-cols-[1.4fr_1fr]">
         <div className="grid gap-4">
           <SpotChart />
@@ -112,12 +156,6 @@ export default function TerminalPage({ account, logout }) {
             selectedContract={selectedContract}
             executionEvent={executionEvent}
             onOrderPlaced={() => setRefreshTrigger((prev) => prev + 1)}
-          />
-          {/* Blocking Journal Lock Modal */}
-          <JournalLockModal
-            isOpen={Boolean(lockedTradeId)}
-            tradeId={lockedTradeId}
-            tradeSummary={closedTradeSummary}
           />
         </div>
       </main>

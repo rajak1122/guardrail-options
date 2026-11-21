@@ -33,7 +33,7 @@ const EMOTION_TAGS = [
   "REVENGE_TILT",
 ];
 
-export default function JournalDetailPage() {
+export default function JournalDetailPage({ onJournalSubmitted }) {
   const { tradeId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -99,8 +99,14 @@ export default function JournalDetailPage() {
       if (!res.ok) throw new Error(data.error || "Failed to submit journal");
 
       setTrade(data.trade);
-      // Redirect straight back to terminal once unlocked
-      navigate("/terminal");
+
+      // Update the parent account state immediately
+      if (data.account) {
+        onJournalSubmitted?.(data.account);
+      }
+
+      // Return to terminal without requiring a manual refresh
+      navigate("/terminal", { replace: true });
     } catch (err) {
       setErrorMsg(err.message);
     } finally {

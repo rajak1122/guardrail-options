@@ -19,6 +19,7 @@ export default function PositionsTray({
   const [loading, setLoading] = useState(true);
   const [exitingSymbol, setExitingSymbol] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [exitLotsByPosition, setExitLotsByPosition] = useState({});
 
   const fetchPositions = useCallback(async () => {
     if (!user?.uid) return;
@@ -72,16 +73,37 @@ export default function PositionsTray({
     onPnLUpdate(totalPnL);
   }, [positions, livePrices, onPnLUpdate]);
 
-  const handleExitPosition = async (pos) => {
+  // Get the correct lot size for each underlying.
+  const getLotSize = (pos) =>
+    Number(pos.lotSize) || (pos.underlying === "BANKNIFTY" ? 30 : 75);
+
+  const getAvailableLots = (pos) =>
+    Math.floor(Number(pos.quantity) / getLotSize(pos));
+
+  const handleExitPosition = async (pos, lotsToExit) => {
     setErrorMsg("");
+
+    const lotSize = getLotSize(pos);
+    const availableLots = getAvailableLots(pos);
+    const requestedLots = Number(lotsToExit);
+
+    // Validate selected exit quantity.
+    if (
+      !Number.isInteger(requestedLots) ||
+      requestedLots <= 0 ||
+      requestedLots > availableLots
+    ) {
+      setErrorMsg(
+        `Choose a valid exit quantity between 1 and ${availableLots} lots.`,
+      );
+      return;
+    }
+
     const currentLtp = livePrices[pos.symbol] ?? pos.averageEntryPrice;
-    const lotsToExit = Math.max(
-      1,
-      Math.round(pos.quantity / (pos.lotSize || 75)),
-    );
 
     try {
       setExitingSymbol(pos.symbol);
+
       const payload = {
         firebaseUid: account?.userId || user?.uid,
         currentTickPrice: currentLtp,
@@ -93,14 +115,24 @@ export default function PositionsTray({
           expiryDate: pos.expiryDate || "2026-11-19",
           side: "SELL",
           orderType: "MARKET",
-          quantity: lotsToExit,
-          lotSize: pos.lotSize || (pos.underlying === "BANKNIFTY" ? 30 : 75),
+          quantity: requestedLots,
+          lotSize,
         },
       };
 
       const res = await placeOrder(payload);
+
+      // Refresh remaining open quantity.
       await fetchPositions();
+
+      // Every SELL creates a separate journal entry.
       if (onPositionClosed) onPositionClosed(res);
+
+      // Reset selector to one lot after execution.
+      setExitLotsByPosition((prev) => ({
+        ...prev,
+        [pos._id]: 1,
+      }));
     } catch (err) {
       setErrorMsg(err.message || "Failed to exit position.");
     } finally {
@@ -190,15 +222,79 @@ export default function PositionsTray({
                         {pnlPercent.toFixed(1)}%)
                       </span>
                     </td>
+
                     <td className="py-3 pl-3 text-right">
-                      <button
-                        onClick={() => handleExitPosition(pos)}
-                        disabled={exitingSymbol === pos.symbol}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-400 font-bold transition disabled:opacity-50"
-                      >
-                        <FiXCircle className="w-3.5 h-3.5" />
-                        {exitingSymbol === pos.symbol ? "Exiting..." : "Exit"}
-                      </button>
+                      {(() => {
+                        const lotSize = getLotSize(pos);
+                        const availableLots = getAvailableLots(pos);
+
+                        const selectedLots = Math.min(
+                          Math.max(1, Number(exitLotsByPosition[pos._id] ?? 1)),
+                          Math.max(1, availableLots),
+                        );
+
+                        const isExiting = exitingSymbol === pos.symbol;
+
+                        return (
+                          <div className="flex flex-col items-end gap-2 min-w-[170px]">
+                            <div className="flex items-center gap-2">
+                              <label className="text-[10px] text-slate-400">
+                                EXIT LOTS
+                              </label>
+
+                              <select
+                                value={selectedLots}
+                                disabled={isExiting || availableLots <= 0}
+                                onChange={(e) =>
+                                  setExitLotsByPosition((prev) => ({
+                                    ...prev,
+                                    [pos._id]: Number(e.target.value),
+                                  }))
+                                }
+                                className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 outline-none"
+                              >
+                                {Array.from(
+                                  { length: availableLots },
+                                  (_, index) => index + 1,
+                                ).map((lots) => (
+                                  <option key={lots} value={lots}>
+                                    {lots} {lots === 1 ? "Lot" : "Lots"}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() =>
+                                  handleExitPosition(pos, selectedLots)
+                                }
+                                disabled={isExiting || availableLots <= 0}
+                                className="px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-400 font-bold transition disabled:opacity-50"
+                              >
+                                {isExiting ? "Exiting..." : "Exit Selected"}
+                              </button>
+
+                              {availableLots > 1 && (
+                                <button
+                                  onClick={() =>
+                                    handleExitPosition(pos, availableLots)
+                                  }
+                                  disabled={isExiting}
+                                  className="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold transition disabled:opacity-50"
+                                >
+                                  Exit All
+                                </button>
+                              )}
+                            </div>
+
+                            <span className="text-[10px] text-slate-500">
+                              {availableLots}{" "}
+                              {availableLots === 1 ? "lot" : "lots"} available
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </td>
                   </tr>
                 );

@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const PropAccount = require("../models/PropAccount");
 const User = require("../models/User");
+const { getRiskPolicy } = require("../config/riskPolicy");
 
 /**
  * @route   POST /api/accounts/init
@@ -19,6 +20,8 @@ router.post("/init", async (req, res) => {
         .status(400)
         .json({ error: "Invalid account size tier selected." });
     }
+
+    const riskPolicy = getRiskPolicy(size);
 
     // Find or create user
     let user = await User.findOne({ firebaseUid });
@@ -39,6 +42,9 @@ router.post("/init", async (req, res) => {
       account.currentBalance = size;
       account.dailyStartingBalance = size;
       account.highWaterMark = size;
+      account.dailyLossLimitPercent = riskPolicy.dailyLossLimitPercent;
+      account.maxTrailingDrawdownPercent =
+        riskPolicy.maxTrailingDrawdownPercent;
       account.status = "ACTIVE";
       account.breachReason = null;
       account.breachedAt = null;
@@ -54,6 +60,9 @@ router.post("/init", async (req, res) => {
         currentBalance: size,
         dailyStartingBalance: size,
         highWaterMark: size,
+        // Tier-specific risk configuration
+        dailyLossLimitPercent: riskPolicy.dailyLossLimitPercent,
+        maxTrailingDrawdownPercent: riskPolicy.maxTrailingDrawdownPercent,
       });
       user.activeAccountId = account._id;
       await user.save();

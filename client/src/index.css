@@ -1,18 +1,106 @@
 @import "tailwindcss";
 
+/* Guardrail Typography System */
+@theme {
+  --font-sans: "Geist Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+}
+
+/* Guardrail semantic color utilities */
+@theme inline {
+  --color-app: var(--app-background);
+  --color-surface: var(--surface-primary);
+  --color-surface-raised: var(--surface-raised);
+  --color-outline: var(--border-default);
+  --color-ink: var(--text-primary);
+  --color-muted: var(--text-secondary);
+}
+
 :root {
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: "Geist Sans", ui-sans-serif, system-ui, sans-serif;
+
   color: #e5e7eb;
   background: #0b1120;
+
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --app-background: #0b1120;
+  --surface-primary: #0f172a;
+  --surface-raised: #111c30;
+  --border-default: #1e293b;
+  --text-primary: #e5e7eb;
+  --text-secondary: #94a3b8;
 }
 
-body {
-  min-width: 320px;
-  min-height: 100vh;
-  margin: 0;
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --app-background: #f5f7fb;
+  --surface-primary: #ffffff;
+  --surface-raised: #eef2f7;
+  --border-default: #dbe3ee;
+  --text-primary: #172033;
+  --text-secondary: #64748b;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --app-background: #f5f7fb;
+  --surface-primary: #ffffff;
+  --surface-raised: #eef2f7;
+  --border-default: #dbe3ee;
+  --text-primary: #172033;
+  --text-secondary: #64748b;
+}
+
+/* Guardrail Soft Slate Light Theme */
+:root[data-theme="light"] {
+  color-scheme: light;
+  color: #172033;
+  background: #e9eef5;
+
+  /* Semantic design tokens */
+  --app-background: #e9eef5;
+  --surface-primary: #f3f6fa;
+  --surface-raised: #eaf0f6;
+  --border-default: #d5dee9;
+  --text-primary: #172033;
+  --text-secondary: #64748b;
+
+  /* Tailwind Slate compatibility */
+  --color-slate-950: #e9eef5;
+  --color-slate-900: #f3f6fa;
+  --color-slate-800: #dfe7f0;
+  --color-slate-700: #cbd5e1;
+  --color-slate-600: #64748b;
+  --color-slate-500: #64748b;
+  --color-slate-400: #64748b;
+  --color-slate-300: #475569;
+  --color-slate-200: #334155;
+  --color-slate-100: #172033;
+
+  /* Emerald accent */
+  --color-emerald-400: #047857;
+  --color-emerald-300: #047857;
+  --color-emerald-500: #059669;
+
+  /* Status colors */
+  --color-rose-400: #e11d48;
+  --color-rose-300: #be123c;
+  --color-rose-500: #e11d48;
+
+  --color-blue-400: #2563eb;
+  --color-purple-400: #7c3aed;
+  --color-amber-400: #b45309;
+}
+
+/* Keep button labels readable on bright accents */
+:root[data-theme="light"] .text-slate-950 {
+  color: #0f172a;
 }
 
 button,

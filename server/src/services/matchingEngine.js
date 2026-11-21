@@ -2,21 +2,120 @@ const Order = require("../models/Order");
 const Position = require("../models/Position");
 const PropAccount = require("../models/PropAccount");
 const TradeHistory = require("../models/TradeHistory");
+const mongoose = require("mongoose");
+
+function createOrderError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
 
 class MatchingEngine {
   async placeOrder(accountId, orderData, currentTickPrice, currentGreeks) {
     const account = await PropAccount.findById(accountId);
     if (!account) throw new Error("Account not found");
     if (account.status === "BREACHED")
-      throw new Error("Account is breached. Trading is locked.");
+      throw createOrderError("Account is breached. Trading is locked.", 403);
 
-    if (account.hasUnjournaledTrade) {
-      throw new Error(
-        "Trading Locked: You must complete your mandatory post-trade journal for your last closed trade before placing new orders.",
+    // Validate incoming order data
+    if (!orderData || typeof orderData !== "object") {
+      throw createOrderError("Invalid order data.", 400);
+    }
+
+    const {
+      symbol,
+      underlying,
+      strikePrice,
+      optionType,
+      expiryDate,
+      side,
+      orderType,
+      quantity,
+      lotSize,
+      limitPrice,
+      triggerPrice,
+    } = orderData;
+
+    // Validate underlying
+    const expectedLotSizes = {
+      NIFTY: 75,
+      BANKNIFTY: 30,
+    };
+
+    if (!expectedLotSizes[underlying]) {
+      throw createOrderError("Invalid underlying symbol.", 400);
+    }
+
+    // Validate lot size
+    if (Number(lotSize) !== expectedLotSizes[underlying]) {
+      throw createOrderError("Invalid lot size for selected underlying.", 400);
+    }
+
+    // Validate quantity
+    const lots = Number(quantity);
+
+    if (!Number.isInteger(lots) || lots <= 0) {
+      throw createOrderError("Order quantity must be a positive integer.", 400);
+    }
+
+    // Validate contract details
+    if (
+      typeof symbol !== "string" ||
+      !symbol.startsWith(underlying) ||
+      !symbol.endsWith(optionType)
+    ) {
+      throw createOrderError("Invalid option contract symbol.", 400);
+    }
+
+    if (!Number.isFinite(Number(strikePrice)) || Number(strikePrice) <= 0) {
+      throw createOrderError("Invalid strike price.", 400);
+    }
+
+    if (!["CE", "PE"].includes(optionType)) {
+      throw createOrderError("Invalid option type.", 400);
+    }
+
+    if (typeof expiryDate !== "string" || !expiryDate.trim()) {
+      throw createOrderError("Expiry date is required.", 400);
+    }
+
+    // Validate transaction side
+    if (!["BUY", "SELL"].includes(side)) {
+      throw createOrderError("Invalid order side.", 400);
+    }
+
+    // Journal lock blocks only new BUY entries.
+    // Existing positions must remain closable.
+    if (side === "BUY" && account.hasUnjournaledTrade) {
+      throw createOrderError(
+        "Trading Locked: Complete your mandatory journal before opening a new position.",
+        403,
       );
     }
 
-    const totalQuantity = orderData.quantity * orderData.lotSize;
+    // Validate order type
+    if (!["MARKET", "LIMIT", "SL"].includes(orderType)) {
+      throw createOrderError("Unsupported order type.", 400);
+    }
+
+    // Validate LIMIT price
+    if (orderType === "LIMIT") {
+      if (!Number.isFinite(Number(limitPrice)) || Number(limitPrice) <= 0) {
+        throw createOrderError("A valid limit price is required.", 400);
+      }
+    }
+
+    // Validate STOP-LOSS trigger
+    if (orderType === "SL") {
+      if (!Number.isFinite(Number(triggerPrice)) || Number(triggerPrice) <= 0) {
+        throw createOrderError(
+          "A valid stop-loss trigger price is required.",
+          400,
+        );
+      }
+    }
+
+    const totalQuantity = lots * Number(lotSize);
 
     const order = await Order.create({
       accountId,
@@ -35,7 +134,24 @@ class MatchingEngine {
     });
 
     if (order.orderType === "MARKET") {
-      return await this.executeOrder(order, currentTickPrice, currentGreeks);
+      try {
+        return await this.executeOrder(order, currentTickPrice, currentGreeks);
+      } catch (error) {
+        await Order.updateOne(
+          {
+            _id: order._id,
+            status: "PENDING",
+          },
+          {
+            $set: {
+              status: "REJECTED",
+              rejectionReason: error.message,
+            },
+          },
+        );
+
+        throw error;
+      }
     }
 
     return { message: "Order placed successfully as PENDING", order };
@@ -90,108 +206,275 @@ class MatchingEngine {
     console.log(`Order execution event emitted: ${order._id}`);
   }
 
-  async executeOrder(order, executionPrice, currentGreeks) {
-    order.status = "EXECUTED";
-    order.executedPrice = executionPrice;
-    order.executedAt = new Date();
-    await order.save();
+  async executeOrder(order, executionPrice, currentGreeks = {}) {
+    const price = Number(executionPrice);
 
-    if (order.side === "BUY") {
-      let position = await Position.findOne({
-        accountId: order.accountId,
-        symbol: order.symbol,
-      });
+    if (!Number.isFinite(price) || price <= 0) {
+      throw new Error("Invalid execution price.");
+    }
 
-      if (position) {
-        const totalCost =
-          position.quantity * position.averageEntryPrice +
-          order.quantity * executionPrice;
-        position.quantity += order.quantity;
-        position.averageEntryPrice = totalCost / position.quantity;
-        await position.save();
-      } else {
-        await Position.create({
-          accountId: order.accountId,
-          symbol: order.symbol,
-          underlying: order.underlying,
-          strikePrice: order.strikePrice,
-          optionType: order.optionType,
-          expiryDate: order.expiryDate,
-          quantity: order.quantity,
-          lotSize: order.lotSize,
-          averageEntryPrice: executionPrice,
-          entryGreeks: currentGreeks || {},
-        });
-      }
-      this.emitOrderExecuted(order);
-    } else if (order.side === "SELL") {
-      const position = await Position.findOne({
-        accountId: order.accountId,
-        symbol: order.symbol,
-      });
-      if (!position)
-        throw new Error(
-          "No open position found to exit for symbol: " + order.symbol,
+    const session = await mongoose.startSession();
+
+    let committedResult = null;
+
+    try {
+      await session.withTransaction(async () => {
+        // Reset result because transaction callbacks can retry.
+        committedResult = null;
+
+        // Atomically claim this pending order.
+        const claimedOrder = await Order.findOneAndUpdate(
+          {
+            _id: order._id,
+            status: "PENDING",
+          },
+          {
+            $set: { status: "PROCESSING" },
+          },
+          {
+            returnDocument: "after",
+            session,
+          },
         );
 
-      const exitQty = Math.min(order.quantity, position.quantity);
-      const buyPrice = position.averageEntryPrice;
-      const netPnL = (executionPrice - buyPrice) * exitQty;
-      const pnlPercent = ((executionPrice - buyPrice) / buyPrice) * 100;
+        // Another process may already have executed this order.
+        if (!claimedOrder) {
+          committedResult = { executed: false };
+          return;
+        }
 
-      const account = await PropAccount.findById(order.accountId);
-      account.currentBalance += netPnL;
+        // Fetch account inside the transaction.
+        const account = await PropAccount.findById(
+          claimedOrder.accountId,
+        ).session(session);
 
-      if (account.currentBalance > account.highWaterMark) {
-        account.highWaterMark = account.currentBalance;
-      }
+        if (!account) {
+          throw new Error("Trading account not found.");
+        }
 
-      const tradeHistory = await TradeHistory.create({
-        accountId: order.accountId,
-        symbol: order.symbol,
-        underlying: order.underlying,
-        strikePrice: order.strikePrice,
-        optionType: order.optionType,
-        quantity: exitQty,
-        entryPrice: buyPrice,
-        exitPrice: executionPrice,
-        netPnL,
-        pnlPercent,
-        exitReason: "MANUAL_EXIT",
-        entryTime: position.createdAt,
-        exitTime: new Date(),
-        isJournaled: false,
+        // Reject every order if the account has been breached.
+        if (account.status === "BREACHED") {
+          const reason = "Account is breached. All trading orders are locked.";
+
+          claimedOrder.status = "REJECTED";
+          claimedOrder.rejectionReason = reason;
+
+          await claimedOrder.save({ session });
+
+          committedResult = {
+            executed: false,
+            rejected: true,
+            order: claimedOrder,
+          };
+
+          return;
+        }
+
+        // Reject BUY orders if mandatory journaling is pending.
+        // SELL orders are always allowed to close existing positions.
+        if (claimedOrder.side === "BUY" && account.hasUnjournaledTrade) {
+          const reason =
+            "Trading Locked: Complete your mandatory journal before opening a new position.";
+
+          claimedOrder.status = "REJECTED";
+          claimedOrder.rejectionReason = reason;
+
+          await claimedOrder.save({ session });
+
+          committedResult = {
+            executed: false,
+            rejected: true,
+            order: claimedOrder,
+          };
+
+          return;
+        }
+
+        let tradeHistory = null;
+        let netPnL = null;
+
+        // BUY: Open or increase a long option position.
+        if (claimedOrder.side === "BUY") {
+          const position = await Position.findOne({
+            accountId: claimedOrder.accountId,
+            symbol: claimedOrder.symbol,
+          }).session(session);
+
+          if (position) {
+            const totalCost =
+              position.quantity * position.averageEntryPrice +
+              claimedOrder.quantity * price;
+
+            position.quantity += claimedOrder.quantity;
+            position.averageEntryPrice = totalCost / position.quantity;
+
+            await position.save({ session });
+          } else {
+            const newPosition = new Position({
+              accountId: claimedOrder.accountId,
+              symbol: claimedOrder.symbol,
+              underlying: claimedOrder.underlying,
+              strikePrice: claimedOrder.strikePrice,
+              optionType: claimedOrder.optionType,
+              expiryDate: claimedOrder.expiryDate,
+              quantity: claimedOrder.quantity,
+              lotSize: claimedOrder.lotSize,
+              averageEntryPrice: price,
+              entryGreeks: currentGreeks || {},
+            });
+
+            await newPosition.save({ session });
+          }
+        }
+
+        // SELL: Reduce or close an existing long position.
+        else if (claimedOrder.side === "SELL") {
+          const position = await Position.findOne({
+            accountId: claimedOrder.accountId,
+            symbol: claimedOrder.symbol,
+          }).session(session);
+
+          if (!position) {
+            throw new Error(
+              `No open position found for ${claimedOrder.symbol}`,
+            );
+          }
+
+          // Never silently reduce the requested exit quantity.
+          if (claimedOrder.quantity > position.quantity) {
+            throw new Error(
+              `Requested exit quantity ${claimedOrder.quantity} exceeds open quantity ${position.quantity}.`,
+            );
+          }
+
+          const exitQty = claimedOrder.quantity;
+          const buyPrice = position.averageEntryPrice;
+
+          if (!Number.isFinite(buyPrice) || buyPrice <= 0) {
+            throw new Error("Invalid position average entry price.");
+          }
+
+          netPnL = (price - buyPrice) * exitQty;
+
+          const pnlPercent = ((price - buyPrice) / buyPrice) * 100;
+
+          // Update realized balance.
+          account.currentBalance += netPnL;
+
+          if (account.currentBalance > account.highWaterMark) {
+            account.highWaterMark = account.currentBalance;
+          }
+
+          // Create closed-trade history inside the transaction.
+          [tradeHistory] = await TradeHistory.create(
+            [
+              {
+                accountId: claimedOrder.accountId,
+                symbol: claimedOrder.symbol,
+                underlying: claimedOrder.underlying,
+                strikePrice: claimedOrder.strikePrice,
+                optionType: claimedOrder.optionType,
+                quantity: exitQty,
+                entryPrice: buyPrice,
+                exitPrice: price,
+                netPnL,
+                pnlPercent,
+                exitReason: "MANUAL_EXIT",
+                entryTime: position.createdAt,
+                exitTime: new Date(),
+                isJournaled: false,
+              },
+            ],
+            { session },
+          );
+
+          // Lock account for mandatory journaling.
+          // Always point to the oldest pending journal.
+          const oldestPendingTrade = await TradeHistory.findOne({
+            accountId: claimedOrder.accountId,
+            isJournaled: { $ne: true },
+          })
+            .sort({ exitTime: 1, _id: 1 })
+            .session(session);
+
+          account.hasUnjournaledTrade = Boolean(oldestPendingTrade);
+
+          account.lastUnjournaledTradeId = oldestPendingTrade?._id || null;
+
+          await account.save({ session });
+
+          await account.save({ session });
+
+          // Update or remove the position.
+          if (position.quantity === exitQty) {
+            await Position.deleteOne({ _id: position._id }, { session });
+          } else {
+            position.quantity -= exitQty;
+            await position.save({ session });
+          }
+        } else {
+          throw new Error("Unsupported order side.");
+        }
+
+        // Only mark EXECUTED after every operation succeeds.
+        claimedOrder.status = "EXECUTED";
+        claimedOrder.executedPrice = price;
+        claimedOrder.executedAt = new Date();
+
+        await claimedOrder.save({ session });
+
+        committedResult = {
+          executed: true,
+          order: claimedOrder,
+          tradeHistory,
+          netPnL,
+        };
       });
 
-      // Lock account for journaling
-      account.hasUnjournaledTrade = true;
-      account.lastUnjournaledTradeId = tradeHistory._id;
-      await account.save();
+      if (committedResult?.rejected) {
+        throw createOrderError(committedResult.order.rejectionReason, 403);
+      }
 
-      // Step 3.3: Push trading lock event over Socket.io
-      if (global.io) {
+      // Everything above has committed successfully at this point.
+      if (!committedResult?.executed) {
+        const latestOrder = await Order.findById(order._id);
+
+        return {
+          message: "Order is already processed or no longer pending.",
+          order: latestOrder,
+        };
+      }
+
+      // Socket events must happen AFTER transaction commit.
+      this.emitOrderExecuted(committedResult.order);
+
+      if (committedResult.tradeHistory && global.io) {
         global.io
           .of("/trading")
           .to(order.accountId.toString())
           .emit("trading_locked", {
             accountId: order.accountId,
-            tradeId: tradeHistory._id,
+            tradeId: committedResult.tradeHistory._id,
             message: "Trading locked. Mandatory post-trade journal required.",
           });
       }
 
-      if (position.quantity <= exitQty) {
-        await Position.deleteOne({ _id: position._id });
-      } else {
-        position.quantity -= exitQty;
-        await position.save();
+      if (committedResult.tradeHistory) {
+        return {
+          message: "Position exited successfully",
+          netPnL: committedResult.netPnL,
+          tradeHistory: committedResult.tradeHistory,
+          order: committedResult.order,
+        };
       }
-      this.emitOrderExecuted(order);
 
-      return { message: "Position exited successfully", netPnL, tradeHistory };
+      return {
+        message: "Order executed",
+        order: committedResult.order,
+      };
+    } finally {
+      await session.endSession();
     }
-
-    return { message: "Order executed", order };
   }
 }
 

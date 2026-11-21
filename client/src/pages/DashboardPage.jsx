@@ -4,20 +4,19 @@ import { useAuth } from "../context/AuthContext";
 import { fetchJournalAnalytics, fetchTradeHistory } from "../api/journalApi";
 import { initializeAccount } from "../api/tradingApi";
 import {
-  FiShield,
   FiTrendingUp,
   FiAlertTriangle,
   FiPlusCircle,
   FiArrowRight,
   FiFileText,
-  FiLogOut,
   FiAward,
   FiPercent,
   FiDollarSign,
 } from "react-icons/fi";
+import WelcomeSection from "../components/dashboard/WelcomeSection";
 
 export default function DashboardPage({ account, setAccount }) {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   const [selectedTier, setSelectedTier] = useState(500000);
@@ -74,46 +73,8 @@ export default function DashboardPage({ account, setAccount }) {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      {/* Top Header */}
-      <header className="border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-              <FiShield className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="font-bold text-base tracking-tight">
-                Guardrail{" "}
-                <span className="text-emerald-400">Command Center</span>
-              </span>
-              <span className="block text-[11px] font-mono text-slate-500">
-                {user?.email}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            {account && account.status === "ACTIVE" && (
-              <button
-                onClick={() => navigate("/terminal")}
-                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm px-4 py-2 rounded-xl transition flex items-center gap-2 shadow-lg shadow-emerald-500/15"
-              >
-                <span>Open Terminal</span>
-                <FiArrowRight className="w-4 h-4" />
-              </button>
-            )}
-            <button
-              onClick={logout}
-              className="text-slate-400 hover:text-rose-400 text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg hover:bg-slate-900 transition"
-            >
-              <FiLogOut className="w-4 h-4" />
-              <span>Sign Out</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+        <WelcomeSection user={user} account={account} />
         {/* Breach Warning Banner */}
         {account?.status === "BREACHED" && (
           <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -123,7 +84,7 @@ export default function DashboardPage({ account, setAccount }) {
                 <h3 className="font-bold text-rose-300 text-sm">
                   Account Breached — Trading Locked
                 </h3>
-                <p className="text-xs text-rose-200/80 mt-1">
+                <p className="text-xs text-red-500 mt-1">
                   Reason: {account.breachReason || "Drawdown limit exceeded"}.
                   Review your past journals below, then initialize a fresh
                   capital tier to resume trading.
