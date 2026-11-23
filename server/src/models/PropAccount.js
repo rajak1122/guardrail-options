@@ -66,6 +66,11 @@ const propAccountSchema = new mongoose.Schema(
       ref: "TradeHistory",
       default: null,
     },
+    equitySessionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: () => new mongoose.Types.ObjectId(),
+      required: true,
+    },
   },
   { timestamps: true },
 );

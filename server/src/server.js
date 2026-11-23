@@ -22,6 +22,7 @@ app.use("/api/auth", require("./routes/auth.routes"));
 app.use("/api/accounts", require("./routes/account.routes"));
 app.use("/api/orders", require("./routes/order.routes"));
 app.use("/api/journal", require("./routes/journal.routes"));
+app.use("/api/profile", require("./routes/profile.routes"));
 app.get("/api/candles/:symbol", async (req, res) => {
   try {
     const { symbol } = req.params;

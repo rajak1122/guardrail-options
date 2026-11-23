@@ -358,8 +358,15 @@ class MatchingEngine {
 
           const pnlPercent = ((price - buyPrice) / buyPrice) * 100;
 
-          // Update realized balance.
+          // Update realized balance after this closed trade.
           account.currentBalance += netPnL;
+
+          // Ensure older accounts have a session identifier.
+          if (!account.equitySessionId) {
+            account.equitySessionId = new mongoose.Types.ObjectId();
+          }
+
+          const balanceAfter = account.currentBalance;
 
           if (account.currentBalance > account.highWaterMark) {
             account.highWaterMark = account.currentBalance;
@@ -377,6 +384,8 @@ class MatchingEngine {
                 quantity: exitQty,
                 entryPrice: buyPrice,
                 exitPrice: price,
+                equitySessionId: account.equitySessionId,
+                balanceAfter,
                 netPnL,
                 pnlPercent,
                 exitReason: "MANUAL_EXIT",

@@ -8,6 +8,7 @@ import {
   FiArrowUpRight,
   FiShield,
 } from "react-icons/fi";
+import { fetchUserProfile } from "../../api/profileApi";
 
 const getIndiaTime = (date) => {
   const parts = new Intl.DateTimeFormat("en-IN", {
@@ -87,6 +88,31 @@ const getGreeting = (date) => {
 
 export default function WelcomeSection({ user, account }) {
   const [now, setNow] = useState(() => new Date());
+  const [profileDisplayName, setProfileDisplayName] = useState("");
+
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    let cancelled = false;
+
+    const loadProfileName = async () => {
+      try {
+        const data = await fetchUserProfile(user.uid);
+
+        if (!cancelled) {
+          setProfileDisplayName(data.profile?.displayName || "");
+        }
+      } catch (error) {
+        console.error("Failed to load profile name:", error);
+      }
+    };
+
+    loadProfileName();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -95,8 +121,6 @@ export default function WelcomeSection({ user, account }) {
 
     return () => clearInterval(interval);
   }, []);
-
-  const firstName = user?.displayName?.trim().split(/\s+/)[0] || "Trader";
 
   const greeting = getGreeting(now);
   const market = getMarketContext(now);
@@ -130,7 +154,7 @@ export default function WelcomeSection({ user, account }) {
           </div>
 
           <h2 className="text-2xl font-semibold tracking-tight text-slate-100 md:text-3xl">
-            {greeting}, {firstName}!
+            {greeting}, {profileDisplayName || user?.displayName || "Trader"}!
           </h2>
 
           <p className="mt-3 text-sm leading-6 text-slate-400">

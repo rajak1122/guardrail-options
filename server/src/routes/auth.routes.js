@@ -14,20 +14,24 @@ router.post("/sync", authMiddleware, async (req, res) => {
       });
     }
 
-    const displayName = req.body.displayName || name || email.split("@")[0];
+    const initialDisplayName =
+      req.body?.displayName || name || email.split("@")[0];
 
     const user = await User.findOneAndUpdate(
       { firebaseUid: uid },
       {
         $set: {
           email,
-          displayName,
+        },
+        $setOnInsert: {
+          displayName: initialDisplayName,
         },
       },
       {
         upsert: true,
         returnDocument: "after",
         setDefaultsOnInsert: true,
+        runValidators: true,
       },
     );
 

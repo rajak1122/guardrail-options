@@ -1,7 +1,7 @@
 const { calculateGreeks } = require("./greeksEngine");
 const matchingEngine = require("./matchingEngine");
 const candleAggregator = require("./candleAggregator");
-
+const marketPriceStore = require("./marketPriceStore");
 const PropAccount = require("../models/PropAccount");
 const Position = require("../models/Position");
 const riskWatchdog = require("./riskWatchdog");
@@ -199,6 +199,9 @@ class BrokerFeedManager {
                 position.optionType,
               );
             }
+
+            // Publish the latest market prices for other backend services.
+            marketPriceStore.updatePrices(currentPrices);
 
             // Evaluate accounts independently.
             const evaluations = await Promise.allSettled(

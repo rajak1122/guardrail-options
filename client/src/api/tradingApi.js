@@ -31,3 +31,29 @@ export async function placeOrder(orderPayload) {
   }
   return res.json();
 }
+
+export async function fetchAccountActivities(firebaseUid, limit = 10) {
+  const res = await fetch(
+    `${API_BASE}/accounts/activities/${encodeURIComponent(firebaseUid)}?limit=${limit}`,
+  );
+
+  if (!res.ok) {
+    const errorData = await res.json();
+    throw new Error(errorData.error || "Failed to fetch account activities");
+  }
+
+  return res.json();
+}
+
+export async function fetchEquityCurve(firebaseUid, range = "1D") {
+  const res = await fetch(
+    `${API_BASE}/accounts/equity-curve/${encodeURIComponent(firebaseUid)}?range=${range}`,
+  );
+
+  if (!res.ok) {
+    const errorData = await res.json();
+    throw new Error(errorData.error || "Failed to fetch equity curve");
+  }
+
+  return res.json();
+}

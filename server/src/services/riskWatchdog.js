@@ -4,6 +4,7 @@ const PropAccount = require("../models/PropAccount");
 const Position = require("../models/Position");
 const TradeHistory = require("../models/TradeHistory");
 const Order = require("../models/Order");
+const AccountActivity = require("../models/AccountActivity");
 
 const { calculateAccountRisk } = require("./riskCalculator");
 
@@ -153,11 +154,22 @@ class RiskWatchdog {
         // Fetch positions again inside the transaction.
         const openPositions = await Position.find({
           accountId: freshAccount._id,
-        }).session(session);
+        })
+          .sort({ createdAt: 1, _id: 1 })
+          .session(session);
 
         let totalUnrealizedPnL = 0;
         const liquidationRecords = [];
         const breachTime = new Date();
+        let balanceAfter = Number(freshAccount.currentBalance);
+
+        if (!Number.isFinite(balanceAfter)) {
+          throw new Error("Invalid account balance during liquidation.");
+        }
+
+        if (!freshAccount.equitySessionId) {
+          freshAccount.equitySessionId = new mongoose.Types.ObjectId();
+        }
 
         // Validate and calculate every open position.
         for (const pos of openPositions) {
@@ -198,7 +210,12 @@ class RiskWatchdog {
 
           totalUnrealizedPnL += netPnL;
 
+          // Track the realized balance after each liquidation.
+          balanceAfter += netPnL;
+
           liquidationRecords.push({
+            balanceAfter,
+            equitySessionId: freshAccount.equitySessionId,
             accountId: freshAccount._id,
             symbol: pos.symbol,
             underlying: pos.underlying,
@@ -270,13 +287,8 @@ class RiskWatchdog {
         freshAccount.breachReason = confirmedReason;
         freshAccount.breachedAt = breachTime;
 
-        // Realise all open position P&L.
-        const totalRealizedPnL = liquidationRecords.reduce(
-          (total, trade) => total + trade.netPnL,
-          0,
-        );
-
-        freshAccount.currentBalance += totalRealizedPnL;
+        // Final balance after all automatic liquidations.
+        freshAccount.currentBalance = balanceAfter;
 
         // Create all liquidation histories atomically.
         let createdTrades = [];
@@ -318,6 +330,33 @@ class RiskWatchdog {
         freshAccount.lastUnjournaledTradeId = oldestPendingTrade?._id || null;
 
         await freshAccount.save({ session });
+
+        // Record account breach activity in the same transaction.
+        await AccountActivity.create(
+          [
+            {
+              userId: freshAccount.userId,
+              accountId: freshAccount._id,
+
+              eventType: "ACCOUNT_BREACHED",
+
+              title: "Trading Account Breached",
+
+              description: confirmedMessage || confirmedReason,
+
+              metadata: {
+                breachReason: confirmedReason,
+                liquidatedPositions: liquidationRecords.length,
+                dailyLossLimitPercent: freshAccount.dailyLossLimitPercent,
+                maxDrawdownPercent: freshAccount.maxTrailingDrawdownPercent,
+                fixedEquityFloor: risk.trailingDrawdown.maxDrawdownFloor,
+              },
+
+              occurredAt: breachTime,
+            },
+          ],
+          { session },
+        );
 
         committedResult = {
           evaluated: true,

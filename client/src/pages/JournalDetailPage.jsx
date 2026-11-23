@@ -17,12 +17,12 @@ import {
 const API_BASE = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api`;
 
 const SETUP_TAGS = [
-  "ORB_BREAKOUT",
+  "ORB",
   "FVG_RETEST",
   "LIQUIDITY_SWEEP",
+  "BREAK_OF_STRUCTURE",
   "MOMENTUM_SCALP",
-  "VWAP_REJECTION",
-  "IMPULSE_FOMO",
+  "IMPULSE_NO_SETUP",
 ];
 
 const EMOTION_TAGS = [
