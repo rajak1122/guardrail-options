@@ -8,6 +8,11 @@ const tradeHistorySchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    equitySessionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
     symbol: {
       type: String,
       required: true,
@@ -41,6 +46,10 @@ const tradeHistorySchema = new mongoose.Schema(
     netPnL: {
       type: Number,
       required: true,
+    },
+    balanceAfter: {
+      type: Number,
+      default: null,
     },
     pnlPercent: {
       type: Number,
@@ -110,5 +119,12 @@ const tradeHistorySchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+tradeHistorySchema.index({
+  accountId: 1,
+  equitySessionId: 1,
+  exitTime: 1,
+  _id: 1,
+});
 
 module.exports = mongoose.model("TradeHistory", tradeHistorySchema);

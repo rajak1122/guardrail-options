@@ -41,7 +41,7 @@ const propAccountSchema = new mongoose.Schema(
     },
     maxTrailingDrawdownPercent: {
       type: Number,
-      default: 5.0, // 5% max trailing drawdown limit
+      default: 10.0, // 10% max trailing drawdown limit
     },
     status: {
       type: String,
@@ -65,6 +65,11 @@ const propAccountSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "TradeHistory",
       default: null,
+    },
+    equitySessionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: () => new mongoose.Types.ObjectId(),
+      required: true,
     },
   },
   { timestamps: true },

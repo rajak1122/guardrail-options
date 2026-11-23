@@ -6,6 +6,7 @@ import { FiShoppingCart, FiAlertCircle, FiCheck, FiZap } from "react-icons/fi";
 export default function OrderTicket({
   account,
   selectedContract,
+  executionEvent,
   onOrderPlaced,
 }) {
   const { user } = useAuth();
@@ -15,6 +16,8 @@ export default function OrderTicket({
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [orderFeedbackStatus, setOrderFeedbackStatus] = useState("");
+  const [pendingOrderId, setPendingOrderId] = useState(null);
 
   useEffect(() => {
     if (selectedContract?.ltp) {
@@ -23,6 +26,28 @@ export default function OrderTicket({
     setErrorMsg("");
     setSuccessMsg("");
   }, [selectedContract]);
+
+  useEffect(() => {
+    if (!executionEvent || !pendingOrderId) return;
+
+    // Ignore execution events belonging to other orders
+    if (executionEvent.orderId !== pendingOrderId) return;
+
+    if (executionEvent.status !== "EXECUTED") return;
+
+    const executedPrice = Number(executionEvent.executedPrice);
+
+    setOrderFeedbackStatus("EXECUTED");
+
+    setSuccessMsg(
+      `${executionEvent.side} ${executionEvent.quantity} QTY filled @ ₹${executedPrice.toFixed(2)}`,
+    );
+
+    // Clear the completed pending order
+    setPendingOrderId(null);
+
+    console.log("Pending order updated to EXECUTED:", executionEvent);
+  }, [executionEvent, pendingOrderId]);
 
   if (!selectedContract) {
     return (
@@ -53,6 +78,7 @@ export default function OrderTicket({
   const handleExecuteOrder = async () => {
     setErrorMsg("");
     setSuccessMsg("");
+    setOrderFeedbackStatus("");
 
     if (account?.hasUnjournaledTrade) {
       setErrorMsg(
@@ -93,9 +119,34 @@ export default function OrderTicket({
       };
 
       const res = await placeOrder(payload);
-      setSuccessMsg(
-        `Executed BUY ${totalQty} QTY (${lots} lot${lots > 1 ? "s" : ""}) @ ₹${contractPrice.toFixed(2)}`,
-      );
+
+      const orderStatus = res?.order?.status;
+
+      if (orderStatus === "PENDING") {
+        setPendingOrderId(res.order._id);
+      }
+
+      if (orderStatus === "PENDING") {
+        setOrderFeedbackStatus("PENDING");
+
+        setSuccessMsg(
+          `LIMIT BUY ${totalQty} QTY (${lots} lot${lots > 1 ? "s" : ""}) placed. Waiting for price ₹${Number(limitPrice).toFixed(2)}.`,
+        );
+      } else if (orderStatus === "EXECUTED") {
+        setOrderFeedbackStatus("EXECUTED");
+
+        const executedPrice = Number(
+          res.order.executedPrice ?? selectedContract.ltp,
+        );
+
+        setSuccessMsg(
+          `BUY ${totalQty} QTY (${lots} lot${lots > 1 ? "s" : ""}) filled @ ₹${executedPrice.toFixed(2)}`,
+        );
+      } else {
+        setOrderFeedbackStatus("SUCCESS");
+        setSuccessMsg(res?.message || "Order submitted successfully.");
+      }
+
       if (onOrderPlaced) onOrderPlaced(res);
     } catch (err) {
       setErrorMsg(err.message || "Failed to place order.");
@@ -106,6 +157,13 @@ export default function OrderTicket({
 
   return (
     <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
+      {/* Journal Lock Warning - Full Width */}
+      {account?.hasUnjournaledTrade && (
+        <div className="w-full rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-400">
+          Journal lock active. Complete your previous trade journal before
+          placing another order.
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-3">
         <div className="flex items-center gap-2">
@@ -222,8 +280,19 @@ export default function OrderTicket({
         )}
 
         {successMsg && (
-          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center gap-2">
-            <FiCheck className="w-4 h-4 shrink-0" />
+          <div
+            className={`p-3 rounded-xl border flex items-center gap-2 ${
+              orderFeedbackStatus === "PENDING"
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+            }`}
+          >
+            {orderFeedbackStatus === "PENDING" ? (
+              <FiAlertCircle className="w-4 h-4 shrink-0" />
+            ) : (
+              <FiCheck className="w-4 h-4 shrink-0" />
+            )}
+
             <span>{successMsg}</span>
           </div>
         )}
@@ -232,12 +301,14 @@ export default function OrderTicket({
       {/* Execute Button */}
       <button
         onClick={handleExecuteOrder}
-        disabled={submitting}
+        disabled={submitting || account?.hasUnjournaledTrade}
         className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-extrabold text-sm py-3.5 rounded-xl transition shadow-lg shadow-emerald-500/15"
       >
         {submitting
           ? "Executing Order..."
-          : `BUY ${totalQty} QTY (${lots}L) @ ₹${contractPrice.toFixed(2)}`}
+          : account?.hasUnjournaledTrade
+            ? "JOURNAL REQUIRED — TRADING LOCKED"
+            : `BUY ${totalQty} QTY (${lots}L) @ ₹${contractPrice.toFixed(2)}`}
       </button>
     </div>
   );

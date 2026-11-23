@@ -1,8 +1,16 @@
 const API_BASE = "http://localhost:5000/api";
 
-export async function fetchJournalAnalytics(firebaseUid) {
-  const res = await fetch(`${API_BASE}/journal/analytics/${firebaseUid}`);
-  if (!res.ok) throw new Error("Failed to fetch journal analytics");
+export async function fetchJournalAnalytics(firebaseUid, range = "ALL") {
+  const params = new URLSearchParams({ range });
+
+  const res = await fetch(
+    `${API_BASE}/journal/analytics/${firebaseUid}?${params.toString()}`,
+  );
+
+  if (!res.ok) {
+    throw new Error("Failed to fetch journal analytics");
+  }
+
   return res.json();
 }
 

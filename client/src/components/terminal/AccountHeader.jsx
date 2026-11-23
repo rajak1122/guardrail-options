@@ -1,6 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { FiShield, FiArrowLeft, FiLock } from "react-icons/fi";
+import ThemeToggle from "../themes/ThemeToggle";
 
 export default function AccountHeader({ account = {}, floatingPnL = 0 }) {
   const navigate = useNavigate();
@@ -48,6 +49,7 @@ export default function AccountHeader({ account = {}, floatingPnL = 0 }) {
 
         {/* Right: Key Metrics */}
         <div className="flex flex-wrap items-center gap-4">
+          <ThemeToggle />
           {/* Equity */}
           <div className="bg-slate-950/80 border border-slate-800/80 px-4 py-2 rounded-xl">
             <span className="text-[10px] font-mono text-slate-400 block">

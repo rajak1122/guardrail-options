@@ -49,7 +49,7 @@ class CandleAggregator {
             volume: currentCandle.volume,
           },
         },
-        { upsert: true, new: true },
+        { upsert: true },
       );
     } catch (err) {
       console.error("Error saving candle aggregation:", err.message);

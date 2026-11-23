@@ -85,7 +85,12 @@ router.post("/place", async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error("Order placement error:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+
+    const statusCode = error.statusCode || 500;
+
+    res.status(statusCode).json({
+      error: error.message || "Internal server error",
+    });
   }
 });
 

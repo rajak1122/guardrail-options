@@ -1,63 +1,38 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  FiLock,
-  FiArrowRight,
-  FiTrendingUp,
-  FiTrendingDown,
-} from "react-icons/fi";
+import { FiLock, FiArrowRight } from "react-icons/fi";
 
 export default function JournalLockModal({ isOpen, tradeId, tradeSummary }) {
   const navigate = useNavigate();
 
   if (!isOpen || !tradeId) return null;
 
-  const isWin = (tradeSummary?.netPnL ?? 0) >= 0;
-
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-amber-500/40 rounded-2xl max-w-md w-full p-6 sm:p-7 shadow-2xl space-y-5">
+    <div className="mx-auto max-w-7xl px-4 pt-4">
+      <div className="flex flex-col gap-4 rounded-2xl border border-amber-500/40 bg-slate-900 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-            <FiLock className="w-5 h-5" />
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/15 text-amber-400">
+            <FiLock className="h-5 w-5" />
           </div>
+
           <div>
-            <h3 className="text-base font-bold text-slate-100">
-              Position Closed • Journal Required
+            <h3 className="text-sm font-bold text-slate-100">
+              Journal Required • Trading Locked
             </h3>
+
             <p className="text-xs text-slate-400">
-              Guardrail discipline lock is active until you review this trade.
+              Complete your previous trade journal to unlock new orders. You can
+              continue viewing the terminal.
             </p>
+
+            {tradeSummary && (
+              <p className="mt-1 font-mono text-xs text-amber-400">
+                {tradeSummary.symbol} • Realized P&L: ₹
+                {Number(tradeSummary.netPnL).toFixed(2)}
+              </p>
+            )}
           </div>
         </div>
-
-        {tradeSummary && (
-          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 font-mono text-xs space-y-2">
-            <div className="flex justify-between text-slate-400">
-              <span>Contract:</span>
-              <span className="text-slate-100 font-bold">
-                {tradeSummary.symbol}
-              </span>
-            </div>
-            <div className="flex justify-between text-slate-400">
-              <span>Trigger:</span>
-              <span className="text-amber-400">
-                {tradeSummary.exitReason || "EXECUTED"}
-              </span>
-            </div>
-            <div className="flex justify-between text-slate-400">
-              <span>Realized P&L:</span>
-              <span
-                className={`font-bold flex items-center gap-1 ${
-                  isWin ? "text-emerald-400" : "text-rose-400"
-                }`}
-              >
-                {isWin ? <FiTrendingUp /> : <FiTrendingDown />}
-                {isWin ? "+" : ""}₹{Number(tradeSummary.netPnL).toFixed(2)}
-              </span>
-            </div>
-          </div>
-        )}
 
         <button
           onClick={() =>
@@ -65,17 +40,10 @@ export default function JournalLockModal({ isOpen, tradeId, tradeSummary }) {
               state: tradeSummary ? { trade: tradeSummary } : undefined,
             })
           }
-          className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm py-3.5 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/15"
+          className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-400"
         >
-          <span>Journal Last Closed Trade</span>
-          <FiArrowRight className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={() => navigate("/dashboard")}
-          className="w-full text-xs font-mono text-slate-400 hover:text-slate-200 transition py-1"
-        >
-          Return to Command Center
+          Complete Journal
+          <FiArrowRight />
         </button>
       </div>
     </div>

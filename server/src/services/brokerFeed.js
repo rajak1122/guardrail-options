@@ -1,10 +1,16 @@
 const { calculateGreeks } = require("./greeksEngine");
 const matchingEngine = require("./matchingEngine");
 const candleAggregator = require("./candleAggregator");
+const marketPriceStore = require("./marketPriceStore");
+const PropAccount = require("../models/PropAccount");
+const Position = require("../models/Position");
+const riskWatchdog = require("./riskWatchdog");
 
 class BrokerFeedManager {
   constructor() {
     this.isLive = false;
+    this.isRiskEvaluationInProgress = false;
+
     this.spotPrices = {
       NIFTY: 25350.0,
       BANKNIFTY: 51800.0,
@@ -40,6 +46,21 @@ class BrokerFeedManager {
     console.log("🔌 Connecting to Angel One SmartAPI WebSocket...");
   }
 
+  getSimulatedOptionLtp(spotPrice, strike, optionType) {
+    const diff = strike - spotPrice;
+
+    const intrinsicValue =
+      optionType === "CE" ? spotPrice - strike : strike - spotPrice;
+
+    const timeValue = 150 * Math.exp(-Math.pow(diff / 300, 2));
+
+    const randomValue = Math.random() * 5;
+
+    const premium = Math.max(5, intrinsicValue + timeValue + randomValue);
+
+    return Number(premium.toFixed(2));
+  }
+
   generateOptionChain(spotPrice, symbol) {
     const strikes = [];
     const atmStrike = Math.round(spotPrice / 50) * 50; // 50-point intervals
@@ -50,20 +71,9 @@ class BrokerFeedManager {
       const diff = strike - spotPrice;
 
       // Intrinsic + time value simulation for options buying
-      let ceLtp = Math.max(
-        5,
-        spotPrice -
-          strike +
-          150 * Math.exp(-Math.pow(diff / 300, 2)) +
-          Math.random() * 5,
-      );
-      let peLtp = Math.max(
-        5,
-        strike -
-          spotPrice +
-          150 * Math.exp(-Math.pow(diff / 300, 2)) +
-          Math.random() * 5,
-      );
+      const ceLtp = this.getSimulatedOptionLtp(spotPrice, strike, "CE");
+
+      const peLtp = this.getSimulatedOptionLtp(spotPrice, strike, "PE");
 
       // Approximate Delta based on moneyness
       let ceDelta = 0.5 + (spotPrice - strike) / 400;
@@ -137,6 +147,98 @@ class BrokerFeedManager {
         );
       } catch (err) {
         console.error("Error evaluating pending orders:", err.message);
+      }
+
+      // Evaluate risk for every active trading account.
+      if (!this.isRiskEvaluationInProgress) {
+        this.isRiskEvaluationInProgress = true;
+
+        try {
+          // Fetch active accounts.
+          const activeAccounts = await PropAccount.find({
+            status: "ACTIVE",
+          })
+            .select("_id")
+            .lean();
+
+          const activeAccountIds = activeAccounts.map((account) => account._id);
+
+          if (activeAccountIds.length > 0) {
+            // Fetch all open positions belonging to active accounts.
+            const openPositions = await Position.find({
+              accountId: { $in: activeAccountIds },
+            })
+              .select("accountId symbol underlying strikePrice optionType")
+              .lean();
+
+            // Ensure every open position has a current simulated price.
+            for (const position of openPositions) {
+              const existingPrice = Number(currentPrices[position.symbol]);
+
+              if (Number.isFinite(existingPrice) && existingPrice > 0) {
+                continue;
+              }
+
+              const spotPrice = Number(this.spotPrices[position.underlying]);
+
+              const strike = Number(position.strikePrice);
+
+              if (
+                !Number.isFinite(spotPrice) ||
+                spotPrice <= 0 ||
+                !Number.isFinite(strike) ||
+                strike <= 0 ||
+                !["CE", "PE"].includes(position.optionType)
+              ) {
+                continue;
+              }
+
+              currentPrices[position.symbol] = this.getSimulatedOptionLtp(
+                spotPrice,
+                strike,
+                position.optionType,
+              );
+            }
+
+            // Publish the latest market prices for other backend services.
+            marketPriceStore.updatePrices(currentPrices);
+
+            // Evaluate accounts independently.
+            const evaluations = await Promise.allSettled(
+              activeAccounts.map((account) =>
+                riskWatchdog.evaluateAccountRisk(account._id, currentPrices),
+              ),
+            );
+
+            evaluations.forEach((evaluation, index) => {
+              const accountId = activeAccountIds[index];
+
+              if (evaluation.status === "rejected") {
+                console.error(
+                  `Risk evaluation failed for account ${accountId}:`,
+                  evaluation.reason,
+                );
+                return;
+              }
+
+              const result = evaluation.value;
+
+              if (result?.breached) {
+                console.log(
+                  `🚨 Risk breach processed for account ${accountId}: ${result.breachReason}`,
+                );
+              } else if (result?.reason === "MISSING_POSITION_PRICES") {
+                console.warn(
+                  `Risk evaluation incomplete for account ${accountId}.`,
+                );
+              }
+            });
+          }
+        } catch (err) {
+          console.error("Error running account risk evaluations:", err);
+        } finally {
+          this.isRiskEvaluationInProgress = false;
+        }
       }
 
       // Aggregate 1m candles for Spot indices & Option contracts

@@ -19,6 +19,37 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "Trader",
     },
+    phoneNumber: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    country: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    tradingProfile: {
+      experienceLevel: {
+        type: String,
+        enum: ["BEGINNER", "INTERMEDIATE", "EXPERIENCED"],
+        default: null,
+      },
+
+      tradingStyle: {
+        type: String,
+        enum: ["SCALPING", "INTRADAY", "SWING"],
+        default: null,
+      },
+
+      primaryInstrument: {
+        type: String,
+        enum: ["NIFTY", "BANKNIFTY"],
+        default: null,
+      },
+    },
     activeAccountId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PropAccount",

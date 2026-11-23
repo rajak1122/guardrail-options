@@ -6,6 +6,7 @@ import {
   signOut,
 } from "firebase/auth";
 import { auth } from "../config/firebase";
+import { syncUserWithBackend } from "../api/authApi";
 
 const googleProvider = new GoogleAuthProvider();
 const AuthContext = createContext();
@@ -16,26 +17,24 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
+      try {
         setUser(firebaseUser);
-        // Sync user with our MongoDB backend
-        try {
-          await fetch("http://localhost:5000/api/auth/sync", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              firebaseUid: firebaseUser.uid,
-              email: firebaseUser.email,
-              displayName: firebaseUser.displayName,
-            }),
+
+        if (firebaseUser) {
+          const idToken = await firebaseUser.getIdToken();
+
+          await syncUserWithBackend({
+            idToken,
+            displayName: firebaseUser.displayName,
           });
-        } catch (err) {
-          console.error("Failed to sync user with backend:", err);
+
+          console.log("Authenticated user synced successfully");
         }
-      } else {
-        setUser(null);
+      } catch (error) {
+        console.error("Authentication sync failed:", error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
